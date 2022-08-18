@@ -219,7 +219,7 @@ resource "google_cloudfunctions2_function" "function" {
 
 # Secret
 resource "google_secret_manager_secret" "notify_api" {
-  secret_id = "notify_api"
+  secret_id = "notify_api_${terraform.workspace}"
   replication {
     user_managed {
       replicas {
