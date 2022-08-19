@@ -21,7 +21,7 @@ Reference Notifier solution for GCP:
 5. If open manifests are found, the function will add the file to the latest open manifest.
 6. If open manifests are not found, a new one will be created and the file added there.
 7. If **single_file_manifest** is set to **true** for the data source in the [configuration file](configuration/datasources.json), the manifest will also be notified (closed).
-8. Notification of data sources where **single_file_manifest** is set to **false** is done with the [notify_manifest](functions/main.py) function which is triggered by scheduler jobs. Scheduler jobs are configured in the [scheduler_jobs.tf template](terraform/scheduler_jobs.tf).
+8. Notification of data sources where **single_file_manifest** is set to **false** is done with the [notify_manifest](functions/main.py) function which is triggered by scheduler jobs. Scheduler jobs are configured in the [scheduler_jobs.tf](terraform/scheduler_jobs.tf) template.
 
 # Dependencies
 This solution uses the [adenotifier](https://github.com/solita/adenotifier) Python library. Please specify a version in [requirements.txt](functions/requirements.txt) to prevent issues with library upgrades.
@@ -29,7 +29,7 @@ This solution uses the [adenotifier](https://github.com/solita/adenotifier) Pyth
 # Deployment
 ## Prerequisites
 ### Deployment tools
-1. Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install-sdk).
+1. Install [Google Cloud CLI](https://cloud.google.com/sdk/docs/install-sdk).
 2. Install [Terraform](https://www.terraform.io/downloads). Note that the templates in this repository are created for Terraform v1.2.7 and GCP provider hashicorp/google-beta v4.31.0. Using other versions may require changes to the templates.
 3. Login to GCP:
 ```Powershell
@@ -75,7 +75,7 @@ Where:
 * {tenant} is the SaaS tenant, e.g. s1234567.
 * {environment} is the Runtime environment name, e.g. dev, test or prod.
 
-The Agile Data Engine support team will provide the secrets.
+Agile Data Engine support will provide the secrets.
 
 ## Provide the public IP addresses to Agile Data Engine support
 Agile Data Engine support needs to add the public IP address to the allowed list before the deployed solution can connect to Notify API. If you have deployed multiple environments, provide IP addresses of each environment to the support team.
