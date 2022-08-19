@@ -29,8 +29,8 @@ This solution uses the [adenotifier](https://github.com/solita/adenotifier) Pyth
 # Deployment
 ## Prerequisites
 ### Deployment tools
-1. Install the (Google Cloud CLI)[https://cloud.google.com/sdk/docs/install-sdk].
-2. Install (Terraform)[https://www.terraform.io/downloads]. Note that the templates in this repository are created for Terraform v1.2.7 and GCP provider hashicorp/google-beta v4.31.0. Using other versions may require changes to the templates.
+1. Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install-sdk).
+2. Install [Terraform](https://www.terraform.io/downloads). Note that the templates in this repository are created for Terraform v1.2.7 and GCP provider hashicorp/google-beta v4.31.0. Using other versions may require changes to the templates.
 3. Login to GCP:
 ```Powershell
 gcloud auth application-default login --project your-gcp-project-id
@@ -93,3 +93,6 @@ See configuration examples in [configuration/datasources.json](configuration/dat
 
 ## Scheduler jobs
 Notification of manifests of data sources where **single_file_manifest** is set to **false** must be scheduled with Cloud Scheduler jobs. Otherwise files would only be collected to manifests, but the manifests would never be closed and loaded by Agile Data Engine. Define scheduler jobs in the [Terraform template](terraform/scheduler_jobs.tf).
+
+# Notes
+OBJECT_METADATA_UPDATE events are tracked to enable re-notifying files with simple metadata changes, e.g. by updating a metadata timestamp.
