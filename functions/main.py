@@ -4,9 +4,9 @@ import json
 import base64
 import logging
 import google.cloud.logging
+from adenotifier import notifier
 from google.cloud import storage
 from google.cloud import secretmanager
-from adenotifier import notifier
 
 def get_configuration(config_bucket: str, config_file: str):
     """Loads a configuration file from a storage bucket.
@@ -41,7 +41,6 @@ def get_secret(secret_id: str):
     
     return json.loads(response.payload.data.decode("UTF-8"))
 
-
 def identify_sources(file_url: str, config: object):
     """Compares a file url to the data source configuration to find matches.
 
@@ -72,7 +71,7 @@ def identify_sources(file_url: str, config: object):
     return sources
 
 @functions_framework.cloud_event
-def main(cloud_event: object) -> None:
+def add_to_manifest(cloud_event: object) -> None:
     """Triggered by a cloud event.
     Gets configuration, identifies data source, adds file to a manifest if source is identified.
         
@@ -108,5 +107,40 @@ def main(cloud_event: object) -> None:
     for source in sources:
         logging.info(f"Processing source: {source['id']}")
         notifier.add_to_manifest(event_url, source, secrets['base_url'], secrets['api_key'], secrets['api_key_secret'])
+
+    return
+
+@functions_framework.cloud_event
+def notify_manifest(cloud_event: object) -> None:
+    """Triggered by Cloud Scheduler & Pub/Sub.
+    Notifies (closes) open manifests for data sources given as parameter.
+        
+    Args:
+        cloud_event (functions_framework.cloud_event): Google cloud event which triggers the function.
+
+    Returns:
+        None.
+
+    """
+    # Using Python logging
+    client = google.cloud.logging.Client()
+    client.setup_logging()
+
+    event_data = json.loads(base64.b64decode(cloud_event.data['message']['data']).decode())
+    logging.info(f'Cloud Function was triggered by Pub/Sub event:\n{event_data}')
+    
+    # Get configuration file ({bucket}/datasource-config/datasources.json)
+    config = get_configuration(config_bucket = os.environ['BUCKET_NAME'], config_file = "datasource-config/datasources.json")
+
+    # Get secrets
+    secrets = get_secret(os.environ['NOTIFY_API_SECRET_ID'])
+
+    # Notify sources
+    for source_id in event_data:
+        for source in config:
+            if source['id'] == source_id:
+                logging.info('Notifying source: {0}'.format(source['id']))
+                notifier.notify_manifests(source, secrets['base_url'], secrets['api_key'], secrets['api_key_secret'])
+                break
 
     return

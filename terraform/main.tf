@@ -4,8 +4,9 @@
 
 terraform {
   required_providers {
+    # 2nd gen Cloud Functions were only supported in the beta provider at the time of creating this template
     google = {
-      source  = "hashicorp/google-beta"
+      source  = "hashicorp/google-beta" 
       version = "4.31.0"
     }
   }
@@ -36,17 +37,17 @@ resource "google_service_account" "account" {
 }
 
 # Role grants
-resource "google_project_iam_member" "invoking" {
+resource "google_project_iam_member" "run_invoker" {
   role    = "roles/run.invoker"
   project = var.project
   member  = "serviceAccount:${google_service_account.account.email}"
 }
-resource "google_project_iam_member" "event-receiving" {
+resource "google_project_iam_member" "event_receiver" {
   role    = "roles/eventarc.eventReceiver"
   project = var.project
   member  = "serviceAccount:${google_service_account.account.email}"
 }
-resource "google_project_iam_member" "artifactregistry-reader" {
+resource "google_project_iam_member" "artifactregistry_reader" {
   role    = "roles/artifactregistry.reader"
   project = var.project
   member  = "serviceAccount:${google_service_account.account.email}"
@@ -57,8 +58,8 @@ resource "google_project_iam_member" "artifactregistry-reader" {
 /* --------- STORAGE -------- */
 /* -------------------------- */
 
-# Config bucket
-resource "google_storage_bucket" "bucket" {
+# Notifier configuration bucket
+resource "google_storage_bucket" "notifierbucket" {
   name = "${var.app}-${terraform.workspace}"
   location = var.storage_location
   storage_class = "STANDARD"
@@ -67,8 +68,8 @@ resource "google_storage_bucket" "bucket" {
 }
 
 # Bucket IAM binding
-resource "google_storage_bucket_iam_binding" "binding" {
-  bucket = google_storage_bucket.bucket.name
+resource "google_storage_bucket_iam_binding" "notifierbucket_binding" {
+  bucket = google_storage_bucket.notifierbucket.name
   role = "roles/storage.objectViewer"
   members = ["serviceAccount:${google_service_account.account.email}"]
 }
@@ -76,22 +77,22 @@ resource "google_storage_bucket_iam_binding" "binding" {
 # Data source configuration file
 resource "google_storage_bucket_object" "configfile" {
   name   = "datasource-config/datasources.json"
-  bucket = google_storage_bucket.bucket.name
+  bucket = google_storage_bucket.notifierbucket.name
   source = "${path.root}/../configuration/datasources.json"
 }
 
-# Function zip archive: add_to_manifest
-data "archive_file" "add_to_manifest" {
+# Function zip archive
+data "archive_file" "function_archive" {
   type        = "zip"
-  source_dir  = "${path.root}/../functions/add_to_manifest"
-  output_path = "${path.root}/.output/add_to_manifest.zip"
+  source_dir  = "${path.root}/../functions/"
+  output_path = "${path.root}/.output/functions.zip"
 }
 
-# Function zip archive bucket object: add_to_manifest
-resource "google_storage_bucket_object" "add_to_manifest" {
-  name   = "functions/${data.archive_file.add_to_manifest.output_md5}.zip"
-  bucket = google_storage_bucket.bucket.name
-  source = data.archive_file.add_to_manifest.output_path
+# Function zip archive bucket object
+resource "google_storage_bucket_object" "function_object" {
+  name   = "functions/${data.archive_file.function_archive.output_md5}.zip"
+  bucket = google_storage_bucket.notifierbucket.name
+  source = data.archive_file.function_archive.output_path
 }
 
 
@@ -99,28 +100,38 @@ resource "google_storage_bucket_object" "add_to_manifest" {
 /* --------- PUB/SUB -------- */
 /* -------------------------- */
 
-# Topic
-resource "google_pubsub_topic" "topic" {
-  name = "pst-${var.app}-${terraform.workspace}"
+# Topic: add_to_manifest
+resource "google_pubsub_topic" "add_to_manifest_topic" {
+  name = "pst-${var.app}-add-to-manifest-${terraform.workspace}"
 }
 
-# Topic IAM binding
+# Topic: notify_manifest
+resource "google_pubsub_topic" "notify_manifest_topic" {
+  name = "pst-${var.app}-notify-manifest-${terraform.workspace}"
+}
+
+# Topic IAM bindings
 data "google_storage_project_service_account" "gcs_account" {
 }
-resource "google_pubsub_topic_iam_binding" "binding" {
-  topic   = google_pubsub_topic.topic.id
+resource "google_pubsub_topic_iam_binding" "add_to_manifest_binding" {
+  topic   = google_pubsub_topic.add_to_manifest_topic.id
+  role    = "roles/pubsub.publisher"
+  members = ["serviceAccount:${data.google_storage_project_service_account.gcs_account.email_address}"]
+}
+resource "google_pubsub_topic_iam_binding" "notify_manifest_binding" {
+  topic   = google_pubsub_topic.notify_manifest_topic.id
   role    = "roles/pubsub.publisher"
   members = ["serviceAccount:${data.google_storage_project_service_account.gcs_account.email_address}"]
 }
 
-# Storage notification
+# Storage notification: add_to_manifest
 resource "google_storage_notification" "notification" {
   bucket         = var.source_data_bucket
   payload_format = "JSON_API_V1"
-  topic          = google_pubsub_topic.topic.id
+  topic          = google_pubsub_topic.add_to_manifest_topic.id
   event_types    = ["OBJECT_FINALIZE", "OBJECT_METADATA_UPDATE"]
   object_name_prefix = var.source_data_object_prefix
-  depends_on = [google_pubsub_topic_iam_binding.binding]
+  depends_on = [google_pubsub_topic_iam_binding.add_to_manifest_binding]
 }
 
 
@@ -128,7 +139,7 @@ resource "google_storage_notification" "notification" {
 /* --------- NETWORK -------- */
 /* -------------------------- */
 
-# Network
+# VPC
 resource "google_compute_network" "cloud_function_network" {
   name = "vpc-${var.app}-${terraform.workspace}"
   auto_create_subnetworks = false
@@ -176,17 +187,17 @@ resource "google_compute_router_nat" "cloud_function_nat" {
 /* ------- FUNCTIONS -------- */
 /* -------------------------- */
 
-# Cloud function
-resource "google_cloudfunctions2_function" "function" {
+# Cloud function: add_to_manifest
+resource "google_cloudfunctions2_function" "add_to_manifest_function" {
   name = "gcf-${var.app}-add-to-manifest-${terraform.workspace}"
   location = var.region
   build_config {
     runtime = "python310"
-    entry_point = "main"
+    entry_point = "add_to_manifest"
     source {
       storage_source {
-        bucket = google_storage_bucket.bucket.name
-        object = google_storage_bucket_object.add_to_manifest.name
+        bucket = google_storage_bucket.notifierbucket.name
+        object = google_storage_bucket_object.function_object.name
       }
     }
   }
@@ -195,7 +206,7 @@ resource "google_cloudfunctions2_function" "function" {
     available_memory = "256M"
     environment_variables = {
       NOTIFY_API_SECRET_ID = google_secret_manager_secret.notify_api.name
-      BUCKET_NAME = google_storage_bucket.bucket.name
+      BUCKET_NAME = google_storage_bucket.notifierbucket.name
       FILE_URL_PREFIX = var.file_url_prefix
     }
     vpc_connector = google_vpc_access_connector.connector.name
@@ -205,7 +216,43 @@ resource "google_cloudfunctions2_function" "function" {
   }
   event_trigger {
     event_type = "google.cloud.pubsub.topic.v1.messagePublished"
-    pubsub_topic = google_pubsub_topic.topic.id
+    pubsub_topic = google_pubsub_topic.add_to_manifest_topic.id
+    retry_policy = "RETRY_POLICY_RETRY"
+    trigger_region = var.region
+    service_account_email = google_service_account.account.email
+  }
+}
+
+# Cloud function: notify_manifest
+resource "google_cloudfunctions2_function" "notify_manifest_function" {
+  name = "gcf-${var.app}-notify-manifest-${terraform.workspace}"
+  location = var.region
+  build_config {
+    runtime = "python310"
+    entry_point = "notify_manifest"
+    source {
+      storage_source {
+        bucket = google_storage_bucket.notifierbucket.name
+        object = google_storage_bucket_object.function_object.name
+      }
+    }
+  }
+  service_config {
+    timeout_seconds = 60
+    available_memory = "256M"
+    environment_variables = {
+      NOTIFY_API_SECRET_ID = google_secret_manager_secret.notify_api.name
+      BUCKET_NAME = google_storage_bucket.notifierbucket.name
+      FILE_URL_PREFIX = var.file_url_prefix
+    }
+    vpc_connector = google_vpc_access_connector.connector.name
+    vpc_connector_egress_settings = "ALL_TRAFFIC"
+    max_instance_count = 1
+    service_account_email = google_service_account.account.email
+  }
+  event_trigger {
+    event_type = "google.cloud.pubsub.topic.v1.messagePublished"
+    pubsub_topic = google_pubsub_topic.notify_manifest_topic.id
     retry_policy = "RETRY_POLICY_RETRY"
     trigger_region = var.region
     service_account_email = google_service_account.account.email
@@ -217,16 +264,13 @@ resource "google_cloudfunctions2_function" "function" {
 /* ----- SECRET MANAGER ----- */
 /* -------------------------- */
 
-# Secret
+# Notify API secret
 resource "google_secret_manager_secret" "notify_api" {
   secret_id = "notify_api_${terraform.workspace}"
   replication {
     user_managed {
       replicas {
-        location = "europe-west1"
-      }
-      replicas {
-        location = "europe-west4"
+        location = var.replica_region
       }
     }
   }
