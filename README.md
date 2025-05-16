@@ -1,3 +1,8 @@
+# DEPRECATED
+THIS REPOSITORY IS DEPRECATED AND NOT SUPPORTED ANYMORE.
+
+Use [ade-file-notifier-reference](https://github.com/agile-data-engine/ade-file-notifier-reference) instead.
+
 # Introduction
 This repository contains a reference solution for notifying incoming source data files for Agile Data Engine Notify API (https://docs.agiledataengine.com/docs/notify-api-saas) in Google Cloud Platform. 
 
